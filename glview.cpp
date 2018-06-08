@@ -31,6 +31,8 @@ const GLchar * fShader =
         "  color = fColor;"
         "}";
 
+const GLfloat black[] = {0.0f,0.0f,0.0f,1.0f};
+
 GLuint vao[2];
 GLuint vbo[1];
 GLuint ebo[1];
@@ -39,22 +41,22 @@ GLuint po;
 
 static const GLfloat vertices[][3] = {
     //x,y
-    {-0.90, -0.90, 0.1},
-    { 0.85, -0.90, 0.1},
-    {-0.90,  0.85, 0.1},
-    { 0.90, -0.85, 0.0},
-    { 0.90,  0.90, 0.0},
-    {-0.85,  0.90, 0.0}
+    {-0.90, -0.90, 0.5},
+    { 0.85, -0.90, 0.5},
+    {-0.90,  0.85, 0.5},
+    { 0.90, -0.85, -0.5},
+    { 0.90,  0.90, -0.5},
+    {-0.85,  0.90, -0.5}
 };
 
 static const GLfloat colors[][4] = {
     //r,g,b,a
-    {1.0, 0.0, 1.0, 1.0},
-    {1.0, 0.0, 0.0, 1.0},
-    {1.0, 0.0, 0.0, 1.0},
-    {1.0, 0.0, 0.0, 1.0},
-    {1.0, 1.0, 0.0, 1.0},
-    {1.0, 0.0, 0.0, 1.0}
+    {1.0, 0.0, 1.0, 0.1},
+    {1.0, 0.0, 0.0, 0.1},
+    {1.0, 0.0, 0.0, 0.1},
+    {1.0, 0.0, 0.0, 0.1},
+    {1.0, 1.0, 0.0, 0.1},
+    {1.0, 0.0, 0.0, 0.1}
 };
 
 static const GLushort indicies[] = {0,1,2,3,4,5};
@@ -105,12 +107,13 @@ GLuint loadShaders(const std::vector<GLenum> &type,
 
 void display()
 {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClearBufferfv(GL_COLOR_BUFFER_BIT,0,black);
+    glClear(GL_DEPTH_BUFFER_BIT);
     glBindVertexArray(vao[0]);
-    glDrawArrays(GL_TRIANGLES, 0 ,6);
+    //glDrawArrays(GL_TRIANGLES, 0 ,6);
 
     glm::mat4 view = glm::translate(glm::mat4(1.0f),glm::vec3(0.0f,0.0f,0.0f));
-    view = glm::rotate(view, 0.0f, glm::vec3(1.0f,0.0f,0.0f));
+    view = glm::rotate(view, glm::radians(75.0f), glm::vec3(1.0f,0.0f,0.0f));
     GLint loc = glGetUniformLocation(po,"view");
     glUniformMatrix4fv(loc,1,GL_FALSE,glm::value_ptr(view));
 
@@ -126,8 +129,11 @@ void initGLView()
     glfwMakeContextCurrent(window);
     glewInit();
 
-    glClearColor(0,0,0,1);
     glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0,0,640,480);
+
 
     glGenBuffers(1,ebo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo[0]);
