@@ -7,10 +7,60 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/io.hpp>
 
-GLuint vao[1];
+const GLchar * vShader =
+        "#version 330 core\n"
+        "layout (location=0) in vec3 vPos;"
+        "layout (location=1) in vec4 vColor;"
+        "out vec4 fColor;"
+        "uniform mat4 view;"
+        "void main(){"
+        "  gl_Position = view * vec4(vPos,1);"
+        "  fColor = vColor;"
+        "}";
 
-void loadShaders(const std::vector<GLenum> &type,
+const GLchar * fShader =
+        "#version 330 core\n"
+        "in vec4 fColor;"
+        "out vec4 color;"
+        "void main(){"
+        "  color = fColor;"
+        "}";
+
+GLuint vao[2];
+GLuint vbo[1];
+GLuint ebo[1];
+GLuint ubo[1];
+GLuint po;
+
+static const GLfloat vertices[][3] = {
+    //x,y
+    {-0.90, -0.90, 0.1},
+    { 0.85, -0.90, 0.1},
+    {-0.90,  0.85, 0.1},
+    { 0.90, -0.85, 0.0},
+    { 0.90,  0.90, 0.0},
+    {-0.85,  0.90, 0.0}
+};
+
+static const GLfloat colors[][4] = {
+    //r,g,b,a
+    {1.0, 0.0, 1.0, 1.0},
+    {1.0, 0.0, 0.0, 1.0},
+    {1.0, 0.0, 0.0, 1.0},
+    {1.0, 0.0, 0.0, 1.0},
+    {1.0, 1.0, 0.0, 1.0},
+    {1.0, 0.0, 0.0, 1.0}
+};
+
+static const GLushort indicies[] = {0,1,2,3,4,5};
+
+
+GLuint loadShaders(const std::vector<GLenum> &type,
                  const std::vector<std::string> &shader)
 {
     GLint res;
@@ -43,13 +93,14 @@ void loadShaders(const std::vector<GLenum> &type,
         std::cout << std::string(&msg[0]) << std::endl;
     }
 
-    glUseProgram(po);
+    return po;
+//    glUseProgram(po);
 
-    for(size_t i=0;i<sos.size();i++){
-        glDetachShader(po, sos[i]);
-        glDeleteShader(sos[i]);
-    }
-    glDeleteProgram(po);
+//    for(size_t i=0;i<sos.size();i++){
+//        glDetachShader(po, sos[i]);
+//        glDeleteShader(sos[i]);
+//    }
+//    glDeleteProgram(po);
 }
 
 void display()
@@ -58,12 +109,18 @@ void display()
     glBindVertexArray(vao[0]);
     glDrawArrays(GL_TRIANGLES, 0 ,6);
 
+    glm::mat4 view = glm::translate(glm::mat4(1.0f),glm::vec3(0.0f,0.0f,0.0f));
+    view = glm::rotate(view, 0.0f, glm::vec3(1.0f,0.0f,0.0f));
+    GLint loc = glGetUniformLocation(po,"view");
+    glUniformMatrix4fv(loc,1,GL_FALSE,glm::value_ptr(view));
+
+    glDrawElements(GL_TRIANGLES,6,GL_UNSIGNED_SHORT,indicies);
 }
 
 void initGLView()
 {
     glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // We want OpenGL 3.3
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     GLFWwindow *window = glfwCreateWindow(640,480,"nBody",NULL,NULL);
     glfwMakeContextCurrent(window);
@@ -72,51 +129,28 @@ void initGLView()
     glClearColor(0,0,0,1);
     glEnable(GL_DEPTH_TEST);
 
-    static const GLfloat vertices[][6] = {
-        {-0.90, -0.90, 1.0, 0.0, 0.0, 1.0},
-        { 0.85, -0.90, 1.0, 0.0, 0.0, 1.0},
-        {-0.90,  0.85, 1.0, 0.0, 0.0, 1.0},
-        { 0.90, -0.85, 1.0, 0.0, 0.0, 1.0},
-        { 0.90,  0.90, 1.0, 0.0, 0.0, 1.0},
-        {-0.85,  0.90, 1.0, 1.0, 0.0, 1.0}
-    };
+    glGenBuffers(1,ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo[0]);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,sizeof(indicies),indicies,GL_STATIC_DRAW);
 
-    GLuint vbo[1];
     glGenBuffers(1,vbo);
     glBindBuffer(GL_ARRAY_BUFFER,vbo[0]);
-    glBufferData(GL_ARRAY_BUFFER,sizeof(vertices),vertices,GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER,sizeof(vertices)+sizeof(colors),nullptr,GL_STATIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER,0,sizeof(vertices),vertices);
+    glBufferSubData(GL_ARRAY_BUFFER,sizeof(vertices),sizeof(colors),colors);
 
-    loadShaders({GL_VERTEX_SHADER,
-                 GL_FRAGMENT_SHADER},
+    glGenBuffers(1,ubo);
+    glBindBuffer(GL_UNIFORM_BUFFER,ubo[0]);
+    glBufferStorage(GL_UNIFORM_BUFFER,16*sizeof(GLfloat),nullptr,GL_DYNAMIC_STORAGE_BIT);
 
-    {"#version 330 core\n"
-     "in vec2 vPos;"
-     "in vec4 vColor;"
-     "out vec4 fColor;"
-     "void main(){"
-     "  gl_Position.xy = vPos;"
-     "  gl_Position.z = 0;"
-     "  gl_Position.w = 1;"
-     "  fColor = vColor;"
-     "}",
-
-     "#version 330 core\n"
-     "in vec4 fColor;"
-     "out vec4 color;"
-     "void main(){"
-     "  color = fColor;"
-     "}"});
-
+    po = loadShaders({GL_VERTEX_SHADER,GL_FRAGMENT_SHADER},{vShader, fShader});
+    glUseProgram(po);
 
     glGenVertexArrays(1,vao);
-
     glBindVertexArray(vao[0]);
     glBindBuffer(GL_ARRAY_BUFFER,vbo[0]);
-    glVertexAttribPointer(0,2,GL_FLOAT,GL_FALSE,
-                          6*sizeof(GLfloat),(const void*)0);
-    glVertexAttribPointer(1,4,GL_FLOAT,GL_FALSE,
-                          6*sizeof(GLfloat),(const void*)(2*sizeof(GLfloat)));
-
+    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,0,(const void*)0);
+    glVertexAttribPointer(1,4,GL_FLOAT,GL_FALSE,0,(const void*)(sizeof(vertices)));
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
 
@@ -127,6 +161,7 @@ void initGLView()
     }while(glfwGetKey(window,GLFW_KEY_ESCAPE) != GLFW_PRESS &&
            !glfwWindowShouldClose(window));
 
+    glInvalidateBufferData(GL_ARRAY_BUFFER);
     glDeleteBuffers(1,vbo);
     glDeleteVertexArrays(1,vao);
     glfwDestroyWindow(window);
