@@ -34,8 +34,8 @@ void initNBody(int n)
                            float(rand())/float(RAND_MAX),
                            float(rand())/float(RAND_MAX));
         b->r = std::pow(b->mass * 3.0f / 4.0f / M_PI, 1.0f/3.0f);
-        if(i%2==0) b->pos = glm::vec3(0,0,0);
-        if(i%2==1) b->pos = glm::vec3(1.0f,1.0f,1.0f);
+        if(i%2==0) b->pos = glm::vec3(0.1,0.1,0.1);
+        if(i%2==1) b->pos = glm::vec3(0.9f,0.9f,0.9f);
         univ[i] = b;
     }
    t0 = 0.0f;
@@ -108,7 +108,7 @@ void iterateNBody(float t)
         b->pos = ii->pos;
         b->vel = ii->vel;
         ii++;
-        std::cout << b << " " << b->pos << " " << b->vel.length() << std::endl;
+        //std::cout << b << " " << b->pos << " " << b->vel.length() << std::endl;
     }
     nuniv.clear();
 }
