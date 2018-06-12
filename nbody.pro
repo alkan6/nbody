@@ -4,7 +4,7 @@ CONFIG -= app_bundle
 CONFIG -= qt
 CONFIG += link_pkgconfig
 
-PKGCONFIG += gl glfw3 glew glm
+PKGCONFIG += gl glfw3 glew epoxy glm
 
 SOURCES += \
     nbody.cpp \

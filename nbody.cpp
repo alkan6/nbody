@@ -6,7 +6,6 @@
 #include <glm/gtx/io.hpp>
 
 #define G float(6.674e-11)
-static float t0;
 
 struct IBody {
   Body *body;
@@ -38,7 +37,6 @@ void initNBody(int n)
         //if(i%2==1) b->pos = glm::vec3(0.9f,0.9f,0.9f);
         univ[i] = b;
     }
-   t0 = 0.0f;
 }
 
 void joinNBody()
@@ -69,11 +67,8 @@ void joinNBody()
     }
 }
 
-void iterateNBody(float t)
+void iterateNBody(float dt)
 {
-    float dt = t - t0;
-    t0 = t;
-
     std::vector<IBody> nuniv;
     std::vector<Body*>::iterator i,j;
     i = univ.begin();

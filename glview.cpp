@@ -4,9 +4,11 @@
 #include <iostream>
 #include <vector>
 
-#include <GL/glew.h>
+//#include <GL/glew.h>
+#include <epoxy/gl.h>
+#include <epoxy/glx.h>
+#define GLFW_INCLUDE_GLEXT
 #include <GLFW/glfw3.h>
-#include <GL/gl.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -16,24 +18,24 @@
 extern std::vector<Body*> univ;
 
 const GLchar * vShader =
-        "#version 430 core\n"
+        "#version 330 core\n"
         "layout (location=0) in vec3 vPos;"
-        "layout (location=1) in vec4 vColor;"
-        "out vec4 fColor;"
+        "layout (location=1) in vec4 vCol;"
+        "out vec4 fCol;"
         "uniform mat4 model;"
         "uniform mat4 view;"
         "uniform mat4 prj;"
         "void main(){"
         "  gl_Position = prj * view * model * vec4(vPos, 1.0f);"
-        "  fColor = vColor;"
+        "  fCol = vCol;"
         "}";
 
 const GLchar * fShader =
-        "#version 430 core\n"
-        "in vec4 fColor;"
-        "out vec4 color;"
+        "#version 330 core\n"
+        "in vec4 fCol;"
+        "out vec4 col;"
         "void main(){"
-        "  color = fColor;"
+        "  col = fCol;"
         "}";
 
 const GLfloat black[] = {0.0f,0.0f,0.0f,1.0f};
@@ -43,13 +45,20 @@ GLuint vao;
 GLuint ebo[1];
 GLuint ubo[1];
 GLuint po;
+
 GLint modelLoc;
 GLint viewLoc;
 GLint prjLoc;
+GLfloat aspect;
+GLfloat fov;
 
 
 static const GLushort indicies[] = {0,1,2,3,4,5};
 
+void onError(int err, const char * msg)
+{
+    std::cerr << err << ":" << msg << std::endl;
+}
 
 GLuint loadShaders(const std::vector<GLenum> &type,
                    const std::vector<std::string> &shader)
@@ -95,17 +104,67 @@ GLuint loadShaders(const std::vector<GLenum> &type,
     return po;
 }
 
-void reshape(GLFWwindow *window, int w, int h)
+void onResize(GLFWwindow *window, int w, int h)
 {
+    aspect = float(w)/float(h);
     glViewport(0,0,w,h);
     glScissor(0,0,w,h);
+
+    //adjust projection accordingly
+    glm::mat4 prj = glm::perspective(glm::radians(fov), aspect, 0.1f, 100.0f);
+    glUniformMatrix4fv(prjLoc,1,GL_FALSE,glm::value_ptr(prj));
+}
+
+void onKey(GLFWwindow *window, int key, int scan, int action, int mode)
+{
+    if(key==GLFW_KEY_ESCAPE && action==GLFW_RELEASE){
+        //exit on excape
+        glfwSetWindowShouldClose(window,GLFW_TRUE);
+    }
+
+}
+
+void onFocus(GLFWwindow *window, int focused)
+{
+
+}
+
+void onMouseButton(GLFWwindow *window, int button, int action, int mode)
+{
+    switch(button){
+    case GLFW_MOUSE_BUTTON_LEFT:
+    case GLFW_MOUSE_BUTTON_RIGHT:
+    case GLFW_MOUSE_BUTTON_MIDDLE:
+        break;
+    }
+}
+
+void onCursorPos(GLFWwindow *window, double xpos, double ypos)
+{
+
+}
+
+void onCursorEnter(GLFWwindow *window, int entered)
+{
+
+}
+
+void onScroll(GLFWwindow *window, double dx, double dy)
+{
+    //cheap zoom on mouse wheel
+    fov -= 1.0 * dy;
+    glm::mat4 prj = glm::perspective(glm::radians(fov),
+                                     aspect,
+                                     0.1f, 100.0f);
+    glUniformMatrix4fv(prjLoc,1,GL_FALSE,glm::value_ptr(prj));
 }
 
 void display()
 {
-    double t = glfwGetTime();
+    double dt = glfwGetTime();
     //joinNBody();
-    iterateNBody(1000*t);
+    iterateNBody(1000*dt);
+    glfwSetTime(0.0);
 
     size_t sz = univ.size();
     GLfloat * vertices = (GLfloat*)malloc(sz*3*sizeof(GLfloat));
@@ -137,6 +196,7 @@ void display()
     glClearColor(0.0f,0.0f,0.0f,1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+
     //glClearBufferfv(GL_COLOR,0,black);
     //glClearBufferfv(GL_DEPTH,0,depth);
 
@@ -151,16 +211,45 @@ void display()
     free(colors);
 }
 
-void initGLView()
+int initGLView()
 {
-    glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
-    GLFWwindow *window = glfwCreateWindow(640,480,"nBody",NULL,NULL);
-    glfwMakeContextCurrent(window);
-    glfwSetWindowSizeCallback(window,reshape);
 
-    glewInit();
+
+
+
+    glfwSetErrorCallback(onError);
+    if(!glfwInit()) return -1;
+
+    glfwDefaultWindowHints();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
+    glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);
+
+    GLFWmonitor *mon = glfwGetPrimaryMonitor();
+    const GLFWvidmode *mod = glfwGetVideoMode(mon);
+    int w = mod->width/2;
+    int h = mod->height/2;
+    aspect = float(w)/float(h);
+    fov = 120.0f;
+
+    GLFWwindow *window = glfwCreateWindow(w,h,"nBody",NULL,NULL);
+    if(!window) {
+        glfwTerminate();
+        return -1;
+    }
+
+    glfwMakeContextCurrent(window);
+    glfwSetWindowSizeCallback(window,onResize);
+    glfwSetWindowFocusCallback(window,onFocus);
+    glfwSetKeyCallback(window,onKey);
+    glfwSetMouseButtonCallback(window,onMouseButton);
+    glfwSetCursorPosCallback(window, onCursorPos);
+    glfwSetScrollCallback(window,onScroll);
+    glfwSetCursorEnterCallback(window,onCursorEnter);
+    glfwSwapInterval(1);
+
+    //glewInit();
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
@@ -180,12 +269,16 @@ void initGLView()
     glGenVertexArrays(1,&vao);
     glBindVertexArray(vao);
 
+
     po = loadShaders({GL_VERTEX_SHADER,GL_FRAGMENT_SHADER},{vShader, fShader});
     glUseProgram(po);
 
     glGenBuffers(1,ubo);
     glBindBuffer(GL_UNIFORM_BUFFER,ubo[0]);
-    glBufferStorage(GL_UNIFORM_BUFFER,16*sizeof(GLfloat),nullptr,GL_DYNAMIC_STORAGE_BIT);
+    glBufferStorage(GL_UNIFORM_BUFFER,
+                    16*sizeof(GLfloat),
+                    nullptr,
+                    GL_DYNAMIC_STORAGE_BIT);
 
     modelLoc = glGetUniformLocation(po,"model");
     glm::mat4 model = glm::mat4(1.0f);
@@ -199,7 +292,9 @@ void initGLView()
 
     prjLoc = glGetUniformLocation(po,"prj");
     //glm::mat4 prj = glm::ortho(-1.0f,1.0f,-1.0f,1.0f,-1.0f,1.0f);
-    glm::mat4 prj = glm::perspective(glm::radians(90.0f), 640.0f/480.0f, 0.1f, 100.0f);
+    glm::mat4 prj = glm::perspective(glm::radians(fov),
+                                     aspect,
+                                     0.1f, 100.0f);
     glUniformMatrix4fv(prjLoc,1,GL_FALSE,glm::value_ptr(prj));
 
 
@@ -207,11 +302,13 @@ void initGLView()
         display();
         glfwSwapBuffers(window);
         glfwPollEvents();
-    }while(glfwGetKey(window,GLFW_KEY_ESCAPE) != GLFW_PRESS &&
-           !glfwWindowShouldClose(window));
+    }while(!glfwWindowShouldClose(window));
 
     glDeleteProgram(po);
     glDeleteVertexArrays(1,&vao);
+
     glfwDestroyWindow(window);
     glfwTerminate();
+
+    return 0;
 }
