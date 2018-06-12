@@ -3,7 +3,7 @@
 
 int main(int argc, char **argv)
 {
-    initNBody(2);
+    initNBody(500);
     initGLView();
     return 0;
 }

@@ -30,12 +30,12 @@ void initNBody(int n)
         Body *b = new Body;
         b->mass = 1;
         b->vel = glm::vec3(0,0,0);
-        b->pos = glm::vec3(float(rand())/float(RAND_MAX),
-                           float(rand())/float(RAND_MAX),
-                           float(rand())/float(RAND_MAX));
+        b->pos = glm::vec3(2.0f*float(rand())/float(RAND_MAX)-1.0f,
+                           2.0f*float(rand())/float(RAND_MAX)-1.0f,
+                           2.0f*float(rand())/float(RAND_MAX)-1.0f);
         b->r = std::pow(b->mass * 3.0f / 4.0f / M_PI, 1.0f/3.0f);
-        if(i%2==0) b->pos = glm::vec3(0.1,0.1,0.1);
-        if(i%2==1) b->pos = glm::vec3(0.9f,0.9f,0.9f);
+        //if(i%2==0) b->pos = glm::vec3(0.1,0.1,0.1);
+        //if(i%2==1) b->pos = glm::vec3(0.9f,0.9f,0.9f);
         univ[i] = b;
     }
    t0 = 0.0f;
