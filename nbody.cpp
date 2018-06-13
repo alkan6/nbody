@@ -32,8 +32,8 @@ void initNBody(int n)
         b->pos = glm::vec3(2.0f*float(rand())/float(RAND_MAX)-1.0f,
                            2.0f*float(rand())/float(RAND_MAX)-1.0f,
                            2.0f*float(rand())/float(RAND_MAX)-1.0f);
-        b->r = std::pow(b->mass * 3.0f / 4.0f / M_PI, 1.0f/3.0f);
-        //if(i%2==0) b->pos = glm::vec3(0.1,0.1,0.1);
+        b->r = std::pow(b->mass/1000000.0f * 3.0f / 4.0f / M_PI, 1.0f/3.0f);
+        //if(i%2==0) b->pos = glm::vec3(-0.9,-0.9,-0.9);
         //if(i%2==1) b->pos = glm::vec3(0.9f,0.9f,0.9f);
         univ[i] = b;
     }
@@ -55,10 +55,11 @@ void joinNBody()
             if(d>(b1->r+b2->r)) {j++;continue;}
 
             float m = b1->mass + b2->mass;
-            b1->vel = glm::sqrt((b1->mass * glm::exp2(b1->vel) + b2->mass * glm::exp2(b2->vel))/m);
+            b1->vel = (b1->mass * b1->vel + b2->mass * b2->vel)/m;
             b1->pos = (b1->mass * b1->pos + b2->mass * b2->pos)/m;
-            b1->r = std::pow(m * 3.0f / 4.0f / M_PI, 1.0f/3.0f);
+            b1->r = std::pow(m / 1000000.0f * 3.0f / 4.0f / M_PI, 1.0f/3.0f);
             b1->mass = b1->mass + b2->mass;
+
 
             j = univ.erase(j);
             delete b2;

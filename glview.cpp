@@ -4,9 +4,9 @@
 #include <iostream>
 #include <vector>
 
-//#include <GL/glew.h>
-#include <epoxy/gl.h>
-#include <epoxy/glx.h>
+#include <GL/glew.h>
+//#include <epoxy/gl.h>
+//#include <epoxy/glx.h>
 #define GLFW_INCLUDE_GLEXT
 #include <GLFW/glfw3.h>
 
@@ -22,12 +22,15 @@ const GLchar * vShader =
         "#version 330 core\n"
         "layout (location=0) in vec3 vPos;"
         "layout (location=1) in vec4 vCol;"
+        "layout (location=2) in float vMass;"
         "out vec4 fCol;"
         "uniform mat4 model;"
         "uniform mat4 view;"
         "uniform mat4 prj;"
         "void main(){"
-        "  gl_Position = prj * view * model * vec4(vPos, 1.0f);"
+        "  vec4 pos = prj * view * model * vec4(vPos, 1.0f);"
+        "  gl_Position = pos;"
+        "  gl_PointSize = vMass;"
         "  fCol = vCol;"
         "}";
 
@@ -36,13 +39,34 @@ const GLchar * fShader =
         "in vec4 fCol;"
         "out vec4 col;"
         "void main(){"
-        "  col = fCol;"
+        "  const vec4 color1 = vec4(0.6, 0.0, 0.0, 1.0);"
+        "  const vec4 color2 = vec4(0.9, 0.7, 1.0, 0.0);"
+        "  vec2 temp = gl_PointCoord - vec2(0.5);"
+        "  float f = dot(temp, temp);"
+        "  if (f > 0.25) discard;"
+        "  col = mix(color1, color2, smoothstep(0.1, 0.25, f));"
         "}";
 
 const GLfloat black[] = {0.0f,0.0f,0.0f,1.0f};
+const GLfloat white[] = {1.0f,1.0f,1.0f,1.0f};
 const GLfloat depth[] = {-1.0f};
 
-GLuint vao;
+const GLfloat cube[][3] = {
+    {-1.0f+0.0f,-1.0f+0.0f,-1.0f+0.0f},
+    {-1.0f+0.0f,-1.0f+0.0f, 1.0f-0.0f},
+    {-1.0f+0.0f, 1.0f-0.0f,-1.0f+0.0f},
+    {-1.0f+0.0f, 1.0f-0.0f, 1.0f-0.0f},
+    { 1.0f-0.0f,-1.0f+0.0f,-1.0f+0.0f},
+    { 1.0f-0.0f,-1.0f+0.0f, 1.0f-0.0f},
+    { 1.0f-0.0f, 1.0f-0.0f,-1.0f+0.0f},
+    { 1.0f-0.0f, 1.0f-0.0f, 1.0f-0.0f}
+};
+
+const GLushort cubei[] = {0,1,2,3,4,5,6,7,
+                          0,2,1,3,4,6,5,7,
+                          0,4,1,5,2,6,3,7};
+
+GLuint vao[2];
 GLuint ebo[1];
 GLuint ubo[1];
 GLuint po;
@@ -51,13 +75,11 @@ GLint modelLoc;
 GLint viewLoc;
 GLint prjLoc;
 GLfloat aspect;
-GLfloat fov;
+GLfloat fov = 60.0f;
 
 GLFWcursor * rotCursor;
 GLboolean rotating = GLFW_FALSE;
-glm::vec4 camPos = glm::vec4(0.0f,1.0f,1.0f,1.0f);
-
-static const GLushort indicies[] = {0,1,2,3,4,5};
+glm::vec3 camPos = glm::vec3(0.1f,0.1f,3.2f);
 
 void onError(int err, const char * msg)
 {
@@ -115,7 +137,7 @@ void onResize(GLFWwindow *window, int w, int h)
     glScissor(0,0,w,h);
 
     //adjust projection accordingly
-    glm::mat4 prj = glm::perspective(glm::radians(fov), aspect, 0.1f, 100.0f);
+    glm::mat4 prj = glm::perspective(glm::radians(fov), aspect, 0.01f, 100.0f);
     glUniformMatrix4fv(prjLoc,1,GL_FALSE,glm::value_ptr(prj));
 }
 
@@ -163,73 +185,97 @@ void onCursorEnter(GLFWwindow *window, int entered)
 void onScroll(GLFWwindow *window, double dx, double dy)
 {
     //cheap zoom on mouse wheel
-    fov -= 1.0 * dy;
-    fov = std::min(120.0f,std::max(fov,20.0f));
-    glm::mat4 prj = glm::perspective(glm::radians(fov),
-                                     aspect,
-                                     0.1f, 100.0f);
-    glUniformMatrix4fv(prjLoc,1,GL_FALSE,glm::value_ptr(prj));
+//    fov -= 1.0 * dy;
+//    fov = std::min(120.0f,std::max(fov,20.0f));
+//    glm::mat4 prj = glm::perspective(glm::radians(fov),
+//                                     aspect,
+//                                     0.1f, 100.0f);
+//    glUniformMatrix4fv(prjLoc,1,GL_FALSE,glm::value_ptr(prj));
 }
 
 void display()
 {
     float dt = glfwGetTime();
-    //joinNBody();
-    iterateNBody(10000.0*dt);
     glfwSetTime(0.0);
+    joinNBody();
+    iterateNBody(100.0*dt);
+    std::cout << univ.size() << std::endl;
 
-    size_t sz = univ.size();
-    GLfloat * vertices = (GLfloat*)malloc(sz*3*sizeof(GLfloat));
-    GLfloat * colors = (GLfloat*)malloc(sz*4*sizeof(GLfloat));
-    for(size_t i=0;i<univ.size();i++){
-        Body *b = univ[i];
-        *(vertices + 3*i + 0) = b->pos.x;
-        *(vertices + 3*i + 1) = b->pos.y;
-        *(vertices + 3*i + 2) = b->pos.z;
-        *(colors + 4*i + 0) = 1.0f;
-        *(colors + 4*i + 1) = 1.0f;
-        *(colors + 4*i + 2) = 1.0f;
-        *(colors + 4*i + 3) = 1.0f;
-    }
-
-    GLuint vbo[1];
-    glGenBuffers(1,vbo);
-    glBindBuffer(GL_ARRAY_BUFFER,vbo[0]);
-    glBufferData(GL_ARRAY_BUFFER,sz*3*sizeof(GLfloat)+sz*4*sizeof(GLfloat),nullptr,GL_STATIC_DRAW);
-    glBufferSubData(GL_ARRAY_BUFFER,0,sz*3*sizeof(GLfloat),vertices);
-    glBufferSubData(GL_ARRAY_BUFFER,sz*3*sizeof(GLfloat),sz*4*sizeof(GLfloat),colors);
-
-    glBindVertexArray(vao);
-    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,0,(const void*)0);
-    glVertexAttribPointer(1,4,GL_FLOAT,GL_FALSE,0,(const void*)(sz*3*sizeof(GLfloat)));
-    glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
-
-    glm::mat4 rot = glm::rotate(glm::mat4(1.0f),
-                                glm::radians(0.0f*dt),
-                                glm::vec3(0.0f,1.0f,0.0f));
-    camPos = rot * camPos;
-    glm::mat4 view = glm::lookAt(glm::vec3(camPos.x, camPos.y, camPos.z),
-                                 glm::vec3(0.0f,0.0f,0.0f),
-                                 glm::vec3(0.0f,1.0f,0.0f));
-    glUniformMatrix4fv(viewLoc,1,GL_FALSE,glm::value_ptr(view));
 
     glClearColor(0.0f,0.0f,0.0f,1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    glm::mat4 rot = glm::rotate(glm::mat4(1.0f),
+                                glm::radians(0.0f*dt),
+                                glm::vec3(0.0f,1.0f,0.0f));
+    camPos = rot * glm::vec4(camPos,1.0f);
+    glm::mat4 view = glm::lookAt(camPos,
+                                 glm::vec3(0.0f,0.0f,0.0f),
+                                 glm::vec3(0.0f,1.0f,0.0f));
+    glUniformMatrix4fv(viewLoc,1,GL_FALSE,glm::value_ptr(view));
 
-    //glClearBufferfv(GL_COLOR,0,black);
-    //glClearBufferfv(GL_DEPTH,0,depth);
+    size_t sz = univ.size();
+    GLfloat * vertices = (GLfloat*)malloc(sz*8*sizeof(GLfloat));
+    float max = 0.0f;
+    for(size_t i=0;i<univ.size();i++){
+        Body *b = univ[i];
+        *(vertices + 8*i + 0) = b->pos.x;
+        *(vertices + 8*i + 1) = b->pos.y;
+        *(vertices + 8*i + 2) = b->pos.z;
+
+        *(vertices + 8*i + 3) = 0.0f;
+        *(vertices + 8*i + 4) = 1.0f;
+        *(vertices + 8*i + 5) = 1.0f;
+        *(vertices + 8*i + 6) = 1.0f;
+        float sz = std::log(b->r/0.006f);
+        *(vertices + 8*i + 7) = sz ;
+        if(sz>max) max = sz;
+    }
+    std::cout << max << std::endl;
+
+    GLuint vbo[2];
+    glGenBuffers(2,vbo);
+    glBindBuffer(GL_ARRAY_BUFFER,vbo[0]);
+    glBufferData(GL_ARRAY_BUFFER,sz*8*sizeof(GLfloat),vertices,GL_STATIC_DRAW);
+
+    glBindVertexArray(vao[0]);
+    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,8*sizeof(GLfloat),(const void*)0);
+    glVertexAttribPointer(1,4,GL_FLOAT,GL_FALSE,8*sizeof(GLfloat),(const void*)(3*sizeof(GLfloat)));
+    glVertexAttribPointer(2,1,GL_FLOAT,GL_FALSE,8*sizeof(GLfloat),(const void*)(7*sizeof(GLfloat)));
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(2);
 
     glDrawArrays(GL_POINTS, 0 ,sz);
 
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
     glInvalidateBufferData(GL_ARRAY_BUFFER);
-    glDeleteBuffers(1,vbo);
 
+    glBindBuffer(GL_ARRAY_BUFFER,vbo[1]);
+    glBufferData(GL_ARRAY_BUFFER,8*3*sizeof(GLfloat),cube,GL_STATIC_DRAW);
+
+    GLuint ebo[1];
+    glGenBuffers(1,ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo[0]);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,24*sizeof(GLushort),cubei,GL_STATIC_DRAW);
+
+    glBindVertexArray(vao[0]);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo[0]);
+    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,0,(const void*)0);
+    glVertexAttrib4f(1,0.2f,0.2f,0.2f,1.0f);
+    glVertexAttrib1f(2,1.0f);
+    glEnableVertexAttribArray(0);
+
+    glDrawElements(GL_LINES,24,GL_UNSIGNED_SHORT,NULL);
+
+    glDisableVertexAttribArray(0);
+    glInvalidateBufferData(GL_ELEMENT_ARRAY_BUFFER);
+    glInvalidateBufferData(GL_ARRAY_BUFFER);
+
+    glDeleteBuffers(2,vbo);
     free(vertices);
-    free(colors);
 }
 
 int initGLView()
@@ -250,7 +296,6 @@ int initGLView()
     int w = mod->width/2;
     int h = mod->height/2;
     aspect = float(w)/float(h);
-    fov = 120.0f;
 
     GLFWwindow *window = glfwCreateWindow(w,h,"nBody",NULL,NULL);
     if(!window) {
@@ -270,13 +315,14 @@ int initGLView()
 
     rotCursor = glfwCreateStandardCursor(GLFW_CROSSHAIR_CURSOR);
 
-    //glewInit();
+    glewInit();
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glDepthRangef(-1.0f,1.0f);
     glEnable(GL_SCISSOR_TEST);
-    glScissor(0,0,640,480);
+    glViewport(0,0,w,h);
+    glScissor(0,0,w,h);
     //glPolygon
     //glEnable(GL_MULTISAMPLE);
     //glEnable(GL_SAMPLE_SHADING);
@@ -285,11 +331,10 @@ int initGLView()
     //glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     //glEnable(GL_LINE_SMOOTH);
     //glHint(GL_LINE_SMOOTH_HINT,GL_NICEST);
-    //
+    glEnable(GL_PROGRAM_POINT_SIZE);
+    //glPointSize(2.0f);
 
-    glGenVertexArrays(1,&vao);
-    glBindVertexArray(vao);
-
+    glGenVertexArrays(2,vao);
 
     po = loadShaders({GL_VERTEX_SHADER,GL_FRAGMENT_SHADER},{vShader, fShader});
     glUseProgram(po);
@@ -306,18 +351,18 @@ int initGLView()
     glUniformMatrix4fv(modelLoc,1,GL_FALSE,glm::value_ptr(model));
 
     viewLoc = glGetUniformLocation(po,"view");
-    glm::mat4 view = glm::lookAt(glm::vec3(camPos.x,camPos.y,camPos.z),
+    glm::mat4 view = glm::lookAt(camPos,
                                  glm::vec3(0.0f,0.0f,0.0f),
                                  glm::vec3(0.0f,1.0f,0.0f));
+    //glm::mat4 view = glm::mat4(1.0f);
     glUniformMatrix4fv(viewLoc,1,GL_FALSE,glm::value_ptr(view));
 
     prjLoc = glGetUniformLocation(po,"prj");
-    //glm::mat4 prj = glm::ortho(-1.0f,1.0f,-1.0f,1.0f,-1.0f,1.0f);
+    //glm::mat4 prj = glm::ortho(-3.0f,3.0f,-3.0f,3.0f,-3.0f,3.0f);
     glm::mat4 prj = glm::perspective(glm::radians(fov),
                                      aspect,
-                                     0.1f, 100.0f);
+                                     0.01f, 100.0f);
     glUniformMatrix4fv(prjLoc,1,GL_FALSE,glm::value_ptr(prj));
-
 
     do{
         display();
@@ -326,7 +371,7 @@ int initGLView()
     }while(!glfwWindowShouldClose(window));
 
     glDeleteProgram(po);
-    glDeleteVertexArrays(1,&vao);
+    glDeleteVertexArrays(2,vao);
 
     glfwDestroyWindow(window);
     glfwTerminate();

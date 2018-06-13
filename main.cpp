@@ -3,6 +3,6 @@
 
 int main(int argc, char **argv)
 {
-    initNBody(2);
+    initNBody(2000);
     return initGLView();
 }
