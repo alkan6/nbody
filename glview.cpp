@@ -14,6 +14,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/io.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 extern std::vector<Body*> univ;
 
@@ -52,6 +53,9 @@ GLint prjLoc;
 GLfloat aspect;
 GLfloat fov;
 
+GLFWcursor * rotCursor;
+GLboolean rotating = GLFW_FALSE;
+glm::vec4 camPos = glm::vec4(0.0f,1.0f,1.0f,1.0f);
 
 static const GLushort indicies[] = {0,1,2,3,4,5};
 
@@ -133,6 +137,14 @@ void onMouseButton(GLFWwindow *window, int button, int action, int mode)
 {
     switch(button){
     case GLFW_MOUSE_BUTTON_LEFT:
+        if(action == GLFW_PRESS){
+            glfwSetCursor(window, rotCursor);
+            rotating = GLFW_TRUE;
+        } else if(action == GLFW_RELEASE){
+            glfwSetCursor(window, NULL);
+            rotating = GLFW_FALSE;
+        }
+        break;
     case GLFW_MOUSE_BUTTON_RIGHT:
     case GLFW_MOUSE_BUTTON_MIDDLE:
         break;
@@ -141,7 +153,6 @@ void onMouseButton(GLFWwindow *window, int button, int action, int mode)
 
 void onCursorPos(GLFWwindow *window, double xpos, double ypos)
 {
-
 }
 
 void onCursorEnter(GLFWwindow *window, int entered)
@@ -153,6 +164,7 @@ void onScroll(GLFWwindow *window, double dx, double dy)
 {
     //cheap zoom on mouse wheel
     fov -= 1.0 * dy;
+    fov = std::min(120.0f,std::max(fov,20.0f));
     glm::mat4 prj = glm::perspective(glm::radians(fov),
                                      aspect,
                                      0.1f, 100.0f);
@@ -161,9 +173,9 @@ void onScroll(GLFWwindow *window, double dx, double dy)
 
 void display()
 {
-    double dt = glfwGetTime();
+    float dt = glfwGetTime();
     //joinNBody();
-    iterateNBody(1000*dt);
+    iterateNBody(10000.0*dt);
     glfwSetTime(0.0);
 
     size_t sz = univ.size();
@@ -193,6 +205,15 @@ void display()
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
 
+    glm::mat4 rot = glm::rotate(glm::mat4(1.0f),
+                                glm::radians(0.0f*dt),
+                                glm::vec3(0.0f,1.0f,0.0f));
+    camPos = rot * camPos;
+    glm::mat4 view = glm::lookAt(glm::vec3(camPos.x, camPos.y, camPos.z),
+                                 glm::vec3(0.0f,0.0f,0.0f),
+                                 glm::vec3(0.0f,1.0f,0.0f));
+    glUniformMatrix4fv(viewLoc,1,GL_FALSE,glm::value_ptr(view));
+
     glClearColor(0.0f,0.0f,0.0f,1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -213,8 +234,6 @@ void display()
 
 int initGLView()
 {
-
-
 
 
     glfwSetErrorCallback(onError);
@@ -248,6 +267,8 @@ int initGLView()
     glfwSetScrollCallback(window,onScroll);
     glfwSetCursorEnterCallback(window,onCursorEnter);
     glfwSwapInterval(1);
+
+    rotCursor = glfwCreateStandardCursor(GLFW_CROSSHAIR_CURSOR);
 
     //glewInit();
 
@@ -285,7 +306,7 @@ int initGLView()
     glUniformMatrix4fv(modelLoc,1,GL_FALSE,glm::value_ptr(model));
 
     viewLoc = glGetUniformLocation(po,"view");
-    glm::mat4 view = glm::lookAt(glm::vec3(1.0f,1.0f,1.0f),
+    glm::mat4 view = glm::lookAt(glm::vec3(camPos.x,camPos.y,camPos.z),
                                  glm::vec3(0.0f,0.0f,0.0f),
                                  glm::vec3(0.0f,1.0f,0.0f));
     glUniformMatrix4fv(viewLoc,1,GL_FALSE,glm::value_ptr(view));
