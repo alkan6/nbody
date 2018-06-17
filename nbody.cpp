@@ -6,6 +6,7 @@
 #include <glm/gtx/io.hpp>
 
 #define G float(6.674e-11)
+#define D float(1E-6)
 
 struct IBody {
   Body *body;
@@ -29,10 +30,16 @@ void initNBody(int n)
         Body *b = new Body;
         b->mass = 1;
         b->vel = glm::vec3(0,0,0);
-        b->pos = glm::vec3(2.0f*float(rand())/float(RAND_MAX)-1.0f,
-                           2.0f*float(rand())/float(RAND_MAX)-1.0f,
-                           2.0f*float(rand())/float(RAND_MAX)-1.0f);
-        b->r = std::pow(b->mass/1000000.0f * 3.0f / 4.0f / M_PI, 1.0f/3.0f);
+        float pa = (float)rand();
+        float pb = (float)rand();
+        float pr = float(rand())/float(RAND_MAX);
+        b->pos = glm::vec3(pr*std::cos(pb)*std::cos(pa),
+                           pr*std::sin(pb),
+                           pr*std::cos(pb)*std::sin(pa));
+//        b->pos = glm::vec3(2.0f*float(rand())/float(RAND_MAX)-1.0f,
+//                           2.0f*float(rand())/float(RAND_MAX)-1.0f,
+//                           2.0f*float(rand())/float(RAND_MAX)-1.0f);
+        b->r = std::pow(b->mass * D * 3.0f / 4.0f / M_PI, 1.0f/3.0f);
         //if(i%2==0) b->pos = glm::vec3(-0.9,-0.9,-0.9);
         //if(i%2==1) b->pos = glm::vec3(0.9f,0.9f,0.9f);
         univ[i] = b;
@@ -57,9 +64,8 @@ void joinNBody()
             float m = b1->mass + b2->mass;
             b1->vel = (b1->mass * b1->vel + b2->mass * b2->vel)/m;
             b1->pos = (b1->mass * b1->pos + b2->mass * b2->pos)/m;
-            b1->r = std::pow(m / 1000000.0f * 3.0f / 4.0f / M_PI, 1.0f/3.0f);
+            b1->r = std::pow(m * D * 3.0f / 4.0f / M_PI, 1.0f/3.0f);
             b1->mass = b1->mass + b2->mass;
-
 
             j = univ.erase(j);
             delete b2;
