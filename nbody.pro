@@ -8,9 +8,11 @@ PKGCONFIG += gl glfw3 glew epoxy glm
 
 SOURCES += \
     nbody.cpp \
-    main.cpp \
-    glview.cpp
+    main.cpp
 
 HEADERS += \
     nbody.h \
     glview.h
+
+DISTFILES += \
+    glview.cpp.bak

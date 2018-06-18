@@ -1,0 +1,68 @@
+
+const GLfloat black[] = {0.0f,0.0f,0.0f,1.0f};
+const GLfloat white[] = {1.0f,1.0f,1.0f,1.0f};
+const GLfloat depth[] = {-1.0f};
+
+
+
+
+
+void drawPoints(float dt)
+{
+    glUseProgram(po[0]);
+
+    GLint mvpLoc = glGetUniformLocation(po[0],"mvp");
+    glm::mat4 mvp = projection * view * model;
+    glUniformMatrix4fv(mvpLoc,1,GL_FALSE,glm::value_ptr(mvp));
+
+    GLint dtLoc = glGetUniformLocation(po[0],"dt");
+    glUniform1f(dtLoc,dt);
+
+    size_t sz = univ.size();
+
+    GLint cntLoc = glGetUniformLocation(po[0],"cnt");
+    glUniform1i(cntLoc,sz);
+
+    glBindVertexArray(vao[1]);
+    glBindBuffer(GL_ARRAY_BUFFER,vbo[1]);
+    glBufferData(GL_ARRAY_BUFFER,sz*8*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
+
+    struct vertices_t {
+        glm::vec4 pos;
+        glm::vec3 vel;
+        float mass;
+    } * buffer =  (vertices_t*)glMapBuffer(GL_ARRAY_BUFFER,GL_WRITE_ONLY);
+    for(size_t i=0;i<univ.size();i++){
+        Body *b = univ[i];
+        buffer[i].pos = glm::vec4(b->pos,1.0f);
+        buffer[i].vel = b->vel;
+        buffer[i].mass = b->mass;
+    }
+    glUnmapBuffer(GL_ARRAY_BUFFER);
+
+    GLint vPosLoc = glGetAttribLocation(po[0],"vPos");
+    GLint vVelLoc = glGetAttribLocation(po[0],"vVel");
+    GLint vMassLoc = glGetAttribLocation(po[0],"vMass");
+
+    glVertexAttribPointer(vPosLoc,4,GL_FLOAT,GL_FALSE,8*sizeof(GLfloat),(const void*)0);
+    glVertexAttribPointer(vVelLoc,3,GL_FLOAT,GL_FALSE,8*sizeof(GLfloat),(const void*)(4*sizeof(GLfloat)));
+    glVertexAttribPointer(vMassLoc,1,GL_FLOAT,GL_FALSE,8*sizeof(GLfloat),(const void*)(7*sizeof(GLfloat)));
+    glEnableVertexAttribArray(vPosLoc);
+    glEnableVertexAttribArray(vVelLoc);
+    glEnableVertexAttribArray(vMassLoc);
+
+
+
+    glDisableVertexAttribArray(vPosLoc);
+    glDisableVertexAttribArray(vVelLoc);
+    glDisableVertexAttribArray(vPosLoc);
+    glInvalidateBufferData(GL_ARRAY_BUFFER);
+    glBindBuffer(GL_ARRAY_BUFFER,0);
+    glBindVertexArray(0);
+    glDisable(GL_PROGRAM_POINT_SIZE);
+
+}
+
+
+
+
