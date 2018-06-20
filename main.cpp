@@ -62,9 +62,8 @@ static const GLchar * cubeFShader =
 static const GLchar * bodyVShader =
         "#version 420 core\n"
         ""
-        "layout (location=0) in vec4 vPos;"
-        "layout (location=1) in vec3 vVel;"
-        "layout (location=2) in float vMass;"
+        "in vec4 vPos;"
+        "in vec3 vVel;"
         ""
         "uniform mat4 mvp;"
         "uniform float dt;"
@@ -77,18 +76,18 @@ static const GLchar * bodyVShader =
         ""
         "void main(){"
         "  const float G = 6.674e-11;"
-        "  vec3 f = vec3(0.0f,0.0f,0.0f);"
-        "  for(int i=0;i<cnt;i++){"
+        "  vec3 vel = vec3(0.0f,0.0f,0.0f);"
+        "  for(int i=0;i<cnt;++i){"
+        "    if(i == gl_VertexID) continue;"
+        ""
         "    vec4 pos = texelFetch(posBuffer,i);"
         "    float mass = texelFetch(massBuffer,i).r;"
-        "    float d = distance(pos,vPos);"
-        "    if(d < 1e-11) continue;"
-        "    f += (G * vMass * mass * (pos - vPos).xyz/d/d/d);"
+        "    vec3 d = pos.xyz - vPos.xyz;"
+        "    vel += vec3((1.0f * 1.0f * 1.0f * pos.x),0,0);"
         "  }"
-        "  vec3 accel = f/vMass;"
-        "  nVel = vVel + accel * dt;"
-        "  nPos = vPos + vec4(vVel * dt, 0.0f);"
-        "  gl_Position = mvp * nPos;"
+        "  nVel = vVel + vel;"
+        "  nPos = vPos/* + vec4(vVel * dt, 0.0f)*/;"
+        "  gl_Position = mvp * vPos;"
         "}";
 
 
@@ -174,6 +173,21 @@ void onError(int err, const char * msg)
 {
     std::cerr << err << ":" << msg << std::endl;
     exit(-err);
+}
+
+void GLAPIENTRY onDebug(GLenum source,
+                        GLenum type,
+                        GLuint id,
+                        GLenum severity,
+                        GLsizei length,
+                        const GLchar* message,
+                        const void* userParam)
+{
+    std::cerr << "type:" << std::hex << type << ", "
+              << "severity:" << severity << ", "
+              << "source:" << source << ", "
+              << message << std::endl;
+    if(type==GL_DEBUG_TYPE_ERROR || severity!=GL_DEBUG_SEVERITY_NOTIFICATION) exit(-1);
 }
 
 void onResize(GLFWwindow *wnd, int w, int h)
@@ -327,6 +341,8 @@ void init(UserData *d, GLuint cnt)
     glEnable(GL_SCISSOR_TEST);
     glDepthFunc(GL_LESS);
     glClearColor(0.0f,0.0f,0.0f,0.0f);
+    glEnable(GL_DEBUG_OUTPUT);
+    glDebugMessageCallback(onDebug,0);
 
     //load shaders
     GLuint prg;
@@ -350,6 +366,8 @@ void init(UserData *d, GLuint cnt)
     glGenBuffers(XFB_CNT,d->xfb);
     glGenTextures(TBO_CNT,d->tbo);
     glGenBuffers(TBB_CNT,d->tbb);
+    //glCreateTextures(GL_TEXTURE_BUFFER,TBO_CNT,d->tbo);
+    //glCreateBuffers(TBB_CNT,d->tbb);
 
     //ranfom initial bodies
     d->bodies.resize(cnt);
@@ -364,8 +382,8 @@ void init(UserData *d, GLuint cnt)
                           pr*std::sin(pb),
                           pr*std::cos(pb)*std::sin(pa),
                           1.0f);
-        if(i==0) b.pos = glm::vec4(1,0,0,1);
-        else if(i==1) b.pos = glm::vec4(-1,0,0,1);
+        if(i==0) b.pos = glm::vec4(0,0,0,1);
+        else if(i==1) b.pos = glm::vec4(1,0,0,1);
     }
 }
 
@@ -399,8 +417,6 @@ void drawCube(UserData *d)
 
     glDisableVertexAttribArray(vPosLoc);
 
-    glInvalidateBufferData(GL_ELEMENT_ARRAY_BUFFER);
-    glInvalidateBufferData(GL_ARRAY_BUFFER);
     glBindBuffer(GL_ARRAY_BUFFER,0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
     glBindVertexArray(0);
@@ -428,7 +444,6 @@ void drawBodies(UserData *d, double dt)
     GLint cntLoc = glGetUniformLocation(prg,"cnt");
     GLint vPosLoc = glGetAttribLocation(prg,"vPos");
     GLint vVelLoc = glGetAttribLocation(prg,"vVel");
-    GLint vMassLoc = glGetAttribLocation(prg,"vMass");
     GLint posLoc = glGetUniformLocation(prg,"posBuffer");
     GLint massLoc = glGetUniformLocation(prg,"massBuffer");
 
@@ -441,59 +456,102 @@ void drawBodies(UserData *d, double dt)
     //vertices, pos, vel and mass to the shader
     glBindVertexArray(vao);
 
-    //pso vel mass in
+    //pos vel in
     {glBindBuffer(GL_ARRAY_BUFFER,vbo);
-        glBufferData(GL_ARRAY_BUFFER,sz*sizeof(Body),NULL,GL_DYNAMIC_COPY);
-        Body * buffer =  (Body*)glMapBuffer(GL_ARRAY_BUFFER,GL_WRITE_ONLY);
+        glBufferData(GL_ARRAY_BUFFER,
+                     sz*(sizeof(glm::vec4)+sizeof(glm::vec3)),
+                     NULL,GL_STREAM_DRAW);
+        struct FeedIn {
+            glm::vec4 pos;
+            glm::vec3 vel;
+        } * buffer =  (FeedIn*)glMapBuffer(GL_ARRAY_BUFFER,GL_WRITE_ONLY);
         for(size_t i=0;i<sz;i++){
             buffer[i].vel = d->bodies[i].vel;
             buffer[i].pos = d->bodies[i].pos;
-            buffer[i].mass = d->bodies[i].mass;
         }
         glUnmapBuffer(GL_ARRAY_BUFFER);
+        glVertexAttribPointer(vPosLoc,4,GL_FLOAT,GL_FALSE,sizeof(FeedIn),
+                              (const void*)0);
+        glVertexAttribPointer(vVelLoc,3,GL_FLOAT,GL_FALSE,sizeof(FeedIn),
+                              (const void*)(sizeof(glm::vec4)));
+        glEnableVertexAttribArray(vPosLoc);
+        glEnableVertexAttribArray(vVelLoc);
     }
 
-    glVertexAttribPointer(vPosLoc,4,GL_FLOAT,GL_FALSE,sizeof(Body),
-                          (const void*)0);
-    glVertexAttribPointer(vVelLoc,3,GL_FLOAT,GL_FALSE,sizeof(Body),
-                          (const void*)(sizeof(glm::vec4)));
-    glVertexAttribPointer(vMassLoc,1,GL_FLOAT,GL_FALSE,sizeof(Body),
-                          (const void*)(sizeof(glm::vec4) + sizeof(glm::vec3)));
-    glEnableVertexAttribArray(vPosLoc);
-    glEnableVertexAttribArray(vVelLoc);
-    glEnableVertexAttribArray(vMassLoc);
+    {
+        glBindBuffer(GL_TEXTURE_BUFFER, tbbPos);
+        //glBindBufferBase(GL_TEXTURE_BUFFER,1,tbbPos);
+        glBufferData(GL_TEXTURE_BUFFER,sz*sizeof(glm::vec4),NULL,GL_STREAM_DRAW);
+        glm::vec4 * buffer = (glm::vec4*)glMapBuffer(GL_TEXTURE_BUFFER,GL_WRITE_ONLY);
+
+        for(size_t i=0;i<sz;i++){
+            *(buffer+i) = d->bodies[i].pos;
+        }
+        glUnmapBuffer(GL_TEXTURE_BUFFER);
+
+        //glUniform1i(posLoc,0);
+        //glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_BUFFER,tboPos);
+        //glTextureBuffer(tboPos,GL_RGBA32F,tbbPos);
+        glTexBuffer(GL_TEXTURE_BUFFER,GL_RGBA32F,tbbPos);
+        //glTextureBufferRange(GL_TEXTURE_BUFFER,GL_RGBA32F,tbbPos,0,sz*sizeof(glm::vec4));
+        glVertexAttribPointer(posLoc,4,GL_FLOAT,GL_FALSE,0,NULL);
+        glEnableVertexAttribArray(posLoc);
+    }
+
+    if(0){
+        glBindBuffer(GL_TEXTURE_BUFFER, tbbMass);
+        glBufferData(GL_TEXTURE_BUFFER,sz*sizeof(GLfloat),NULL,GL_STREAM_DRAW);
+        //GLfloat * buffer = (GLfloat*)glMapBuffer(GL_TEXTURE_BUFFER,GL_WRITE_ONLYai);
+        GLfloat * buffer = (GLfloat*)glMapBufferRange(GL_TEXTURE_BUFFER,
+                                                      0,sz*sizeof(GLfloat),
+                                                      GL_MAP_WRITE_BIT |
+                                                      GL_MAP_UNSYNCHRONIZED_BIT |
+                                                      GL_MAP_INVALIDATE_BUFFER_BIT);
+        for(size_t i=0;i<sz;i++){
+            *(buffer+i) = 16.0f;
+        }
+        glUnmapBuffer(GL_TEXTURE_BUFFER);
+        glTextureBuffer(tboMass,GL_R32F,tbbMass);
+
+        glBindTexture(GL_TEXTURE_BUFFER,tboMass);
+        glBindBuffer(GL_TEXTURE_BUFFER, tbbMass);
+        glVertexAttribPointer(massLoc,1,GL_FLOAT,GL_FALSE,0,NULL);
+        glEnableVertexAttribArray(massLoc);
+    }
 
     //pos texture buffer in
-    {glBindBuffer(GL_TEXTURE_BUFFER, tbbPos);
+    if(0){glBindBuffer(GL_TEXTURE_BUFFER, tbbPos);
         glBufferData(GL_TEXTURE_BUFFER,sz*sizeof(glm::vec4),NULL,GL_STATIC_DRAW);
         glm::vec4 * buffer =  (glm::vec4*)glMapBuffer(GL_TEXTURE_BUFFER,GL_WRITE_ONLY);
         for(size_t i=0;i<sz;i++){
             *(buffer+i) = d->bodies[i].pos;
         }
         glUnmapBuffer(GL_TEXTURE_BUFFER);
+        glBindTexture(GL_TEXTURE_BUFFER,tboPos);
+        glBindBuffer(GL_ARRAY_BUFFER,tbbPos);
+        glTextureBuffer(tboPos,GL_RGBA16F, tbbPos);
+        glVertexAttribPointer(posLoc, 4, GL_FLOAT,GL_FALSE, 0, (const void*)0);
+        glEnableVertexAttribArray(posLoc);
     }
-    glBindTexture(GL_TEXTURE_BUFFER,tboPos);
-    glBindBuffer(GL_ARRAY_BUFFER,tbbPos);
-    glTextureBuffer(tboPos,GL_RGBA32F, tbbPos);
-    glVertexAttribPointer(posLoc, 4, GL_FLOAT,GL_FALSE, 0, (const void*)0);
-    glEnableVertexAttribArray(posLoc);
 
     //mass texture buffer in
-    {glBindBuffer(GL_TEXTURE_BUFFER, tbbMass);
+    if(0){glBindBuffer(GL_TEXTURE_BUFFER, tbbMass);
         glBufferData(GL_TEXTURE_BUFFER,sz*sizeof(GLfloat),NULL,GL_STATIC_DRAW);
         GLfloat * buffer =  (GLfloat*)glMapBuffer(GL_TEXTURE_BUFFER,GL_WRITE_ONLY);
         for(size_t i=0;i<sz;i++){
-            *(buffer+i) = d->bodies[i].mass;
+            *(buffer+i) = 1.0f;//d->bodies[i].mass;
         }
         glUnmapBuffer(GL_TEXTURE_BUFFER);
+        glBindTexture(GL_TEXTURE_BUFFER,tboMass);
+        glBindBuffer(GL_ARRAY_BUFFER,tbbMass);
+        glTextureBuffer(tboMass,GL_R16F, tbbMass);
+        glVertexAttribPointer(massLoc, 1, GL_FLOAT,GL_FALSE, 0, (const void*)0);
+        glEnableVertexAttribArray(massLoc);
     }
-    glBindTexture(GL_TEXTURE_BUFFER,tboMass);
-    glBindBuffer(GL_ARRAY_BUFFER,tbbMass);
-    glTextureBuffer(tboMass,GL_R32F, tbbMass);
-    glVertexAttribPointer(massLoc, 1, GL_FLOAT,GL_FALSE, 0, (const void*)0);
-    glEnableVertexAttribArray(massLoc);
 
-    //feedback, new pos and vels and mass out
+
+    //feedback, new pos and vels out
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
     glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
     glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER,
@@ -506,36 +564,34 @@ void drawBodies(UserData *d, double dt)
     glDrawArrays(GL_POINTS, 0 ,sz);
     glEndTransformFeedback();
 
-    GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
-    glClientWaitSync(sync,GL_SYNC_FLUSH_COMMANDS_BIT,1000000);
-
     std::cout << std::scientific
-              << d->bodies[0].pos
+              << d->bodies[0].pos << d->bodies[0].vel
               << " "
-              << d->bodies[1].pos << std::endl;
+              << d->bodies[1].pos << d->bodies[1].vel
+              << std::endl;
     //update new pos and vels and mass from shader
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
     glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
-    struct FeedBack {
+    struct FeedOut {
         glm::vec4 pos;
         glm::vec3 vel;
-    } * feedback = (FeedBack*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_READ_ONLY);
+    } * feedout = (FeedOut*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_READ_ONLY);
+    std::cout << std::scientific
+              << feedout[0].pos << feedout[0].vel
+              << " "
+              << feedout[1].pos << feedout[1].vel
+              << std::endl << std::endl;
     for(size_t i=0;i<sz;i++){
-        d->bodies[i].pos = feedback[i].pos;
-        d->bodies[i].vel = feedback[i].vel;
+        //d->bodies[i].pos = feedout[i].pos;
+        //d->bodies[i].vel = feedout[i].vel;
     }
     glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
-    std::cout << std::scientific
-              << d->bodies[0].pos
-              << " "
-              << d->bodies[1].pos << std::endl << std::endl;
+
 
     glDisableVertexAttribArray(vPosLoc);
     glDisableVertexAttribArray(vVelLoc);
-    glDisableVertexAttribArray(vMassLoc);
 
     //clean up
-    glInvalidateBufferData(GL_ARRAY_BUFFER);
     glBindBuffer(GL_ARRAY_BUFFER,0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
     glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,0);
@@ -544,6 +600,7 @@ void drawBodies(UserData *d, double dt)
     glBindTexture(GL_TEXTURE_BUFFER,0);
     glBindVertexArray(0);
     glUseProgram(0);
+    exit(1);
 }
 
 void display(UserData *d)
@@ -563,13 +620,13 @@ void display(UserData *d)
                               glm::vec3(0.0f,0.0f,0.0f),
                               glm::vec3(0.0f,1.0f,0.0f));
     }
-    drawCube(d);
+    //drawCube(d);
     drawBodies(d, 60.0f * 60.0f * dt);
 }
 void finalize(UserData *d)
 {
     glUseProgram(0);
-    for(int i=0;i<PRG_CNT;i++) glDeleteProgram(d->prg[0]);
+    for(int i=0;i<PRG_CNT;i++) glDeleteProgram(d->prg[i]);
     glDeleteBuffers(VBO_CNT,d->vbo);
     glDeleteBuffers(EBO_CNT,d->ebo);
     glDeleteVertexArrays(VAO_CNT,d->vao);
