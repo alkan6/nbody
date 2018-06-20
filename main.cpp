@@ -25,6 +25,11 @@ typedef struct {
 } Body;
 
 typedef struct {
+    glm::vec4 pos;
+    glm::vec3 vel;
+} Feed;
+
+typedef struct {
     GLFWwindow *wnd;
     double t;
     glm::mat4 proj;
@@ -288,7 +293,8 @@ void initCube(UserData *d)
     GLuint vbo = d->vbo[VBO_CUBE];
     GLuint ebo = d->ebo[EBO_CUBE];
 
-    GLint mvpLoc = glGetUniformLocation(prg,"mvp");
+    glUseProgram(prg);
+
     GLint vPosLoc = glGetAttribLocation(prg,"vPos");
 
     glBindVertexArray(vao);
@@ -305,7 +311,91 @@ void initCube(UserData *d)
 
 void initBodies(UserData *d)
 {
+    GLuint prg = d->prg[PRG_BODY];
+    GLuint vao = d->vao[VAO_BODY];
+    GLuint vbo = d->vbo[VBO_BODY];
+    GLuint xfo = d->xfo[XFO_BODY];
+    GLuint xfb = d->xfb[XFB_BODY];
+    GLuint tbo = d->tbo[TBO_ATTR];
+    GLuint tbb = d->tbb[TBB_ATTR];
+    GLuint sz = d->bodies.size();
 
+    glUseProgram(prg);
+
+    //locations
+    GLint mvpLoc = glGetUniformLocation(prg,"mvp");
+    GLint dtLoc = glGetUniformLocation(prg,"dt");
+    GLint cntLoc = glGetUniformLocation(prg,"cnt");
+    GLint vPosLoc = glGetAttribLocation(prg,"vPos");
+    GLint vVelLoc = glGetAttribLocation(prg,"vVel");
+    GLint attrLoc = glGetUniformLocation(prg,"attr");
+    glUniform1i(attrLoc,0);
+
+    //vertices, pos, vel and mass to the shader
+    glBindVertexArray(vao);
+
+    //pos vel in
+    {glBindBuffer(GL_ARRAY_BUFFER,vbo);
+        glVertexAttribPointer(vPosLoc,4,GL_FLOAT,GL_FALSE,sizeof(Feed),
+                              (const void*)0);
+        glVertexAttribPointer(vVelLoc,3,GL_FLOAT,GL_FALSE,sizeof(Feed),
+                              (const void*)(sizeof(glm::vec4)));
+    }
+    glBindVertexArray(0);
+return;
+    {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_BUFFER,tbo);
+        glBindBuffer(GL_TEXTURE_BUFFER, tbb);
+        glBufferData(GL_TEXTURE_BUFFER,sz*sizeof(glm::vec4),NULL,GL_STREAM_DRAW);
+        glm::vec4 * buffer = (glm::vec4*)glMapBuffer(GL_TEXTURE_BUFFER,GL_WRITE_ONLY);
+        for(size_t i=0;i<sz;i++){
+            Body &b = d->bodies[i];
+            *(buffer+i) = glm::vec4(b.pos.x,b.pos.y,b.pos.z,b.mass);
+        }
+        glUnmapBuffer(GL_TEXTURE_BUFFER);
+        glTexBuffer(GL_TEXTURE_BUFFER,GL_RGBA32F,tbb);
+    }
+
+    //feedback, new pos and vels out
+    glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
+    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER,
+                 sz*(sizeof(glm::vec4)+sizeof(glm::vec3)),
+                 NULL,GL_DYNAMIC_COPY);
+    glTransformFeedbackBufferBase(xfo,0,xfb);
+
+    //draw, capture new pos,vel,mass
+    glBeginTransformFeedback(GL_POINTS);
+    glDrawArrays(GL_POINTS, 0 ,sz);
+    glEndTransformFeedback();
+
+    //update new pos and vels and mass from shader
+    glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
+    struct FeedOut {
+        glm::vec4 pos;
+        glm::vec3 vel;
+    } * feedout = (FeedOut*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_READ_ONLY);
+
+    for(size_t i=0;i<sz;i++){
+        d->bodies[i].pos = feedout[i].pos;
+        d->bodies[i].vel = feedout[i].vel;
+        //std::cout << std::scientific << d->bodies[i].pos;
+    }
+    //std::cout << std::endl;
+    glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
+
+    //clean up
+//    glBindBuffer(GL_ARRAY_BUFFER,0);
+//    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
+//    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,0);
+//    glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,0);
+//    glBindBuffer(GL_TEXTURE_BUFFER,0);
+//    glBindTexture(GL_TEXTURE_BUFFER,0);
+    glBindVertexArray(0);
+    //glUseProgram(0);
+    //exit(1);
 }
 
 void init(UserData *d, GLuint cnt)
@@ -434,9 +524,7 @@ void drawCube(UserData *d)
 
     glBindVertexArray(vao);
     glEnableVertexAttribArray(vPosLoc);
-
     glDrawElements(GL_LINES,24,GL_UNSIGNED_SHORT,NULL);
-
     glDisableVertexAttribArray(vPosLoc);
     glBindVertexArray(0);
 }
@@ -461,7 +549,6 @@ void drawBodies(UserData *d, double dt)
     GLint vPosLoc = glGetAttribLocation(prg,"vPos");
     GLint vVelLoc = glGetAttribLocation(prg,"vVel");
     GLint attrLoc = glGetUniformLocation(prg,"attr");
-    glUniform1i(attrLoc,0);
 
     //uniform mvp and dt
     glm::mat4 mvp = d->proj * d->view * d->model;
@@ -486,10 +573,6 @@ void drawBodies(UserData *d, double dt)
             buffer[i].pos = d->bodies[i].pos;
         }
         glUnmapBuffer(GL_ARRAY_BUFFER);
-        glVertexAttribPointer(vPosLoc,4,GL_FLOAT,GL_FALSE,sizeof(FeedIn),
-                              (const void*)0);
-        glVertexAttribPointer(vVelLoc,3,GL_FLOAT,GL_FALSE,sizeof(FeedIn),
-                              (const void*)(sizeof(glm::vec4)));
         glEnableVertexAttribArray(vPosLoc);
         glEnableVertexAttribArray(vVelLoc);
     }
