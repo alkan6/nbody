@@ -19,13 +19,7 @@ enum {TBO_ATTR,TBO_CNT};
 enum {TBB_ATTR,TBB_CNT};
 
 typedef struct {
-    glm::vec4 pos;
-    glm::vec3 vel;
-    GLfloat mass;
-} Body;
-
-typedef struct {
-    glm::vec4 pos;
+    glm::vec4 pos;//pos.w is mass
     glm::vec3 vel;
 } Feed;
 
@@ -46,7 +40,7 @@ typedef struct {
     GLuint xfb[XFB_CNT];//feedback transform buffer
     GLuint tbo[TBO_CNT];//buffer texture
     GLuint tbb[TBB_CNT];//buffer texture buffer
-    std::vector<Body> bodies;
+    std::vector<Feed> bodies;
 } UserData;
 
 static const GLchar * cubeVShader =
@@ -93,7 +87,7 @@ static const GLchar * bodyVShader =
         "    nVel += dt * G * aMass * d;"
         "  }"
         "  nPos = vPos + vec4(dt * vVel, 0.0f);"
-        "  gl_Position = mvp * vPos;"
+        "  gl_Position = mvp * vec4(vPos.xyz,1.0f);"
         "}";
 
 
@@ -318,84 +312,38 @@ void initBodies(UserData *d)
     GLuint xfb = d->xfb[XFB_BODY];
     GLuint tbo = d->tbo[TBO_ATTR];
     GLuint tbb = d->tbb[TBB_ATTR];
-    GLuint sz = d->bodies.size();
 
     glUseProgram(prg);
 
     //locations
-    GLint mvpLoc = glGetUniformLocation(prg,"mvp");
-    GLint dtLoc = glGetUniformLocation(prg,"dt");
-    GLint cntLoc = glGetUniformLocation(prg,"cnt");
     GLint vPosLoc = glGetAttribLocation(prg,"vPos");
     GLint vVelLoc = glGetAttribLocation(prg,"vVel");
     GLint attrLoc = glGetUniformLocation(prg,"attr");
     glUniform1i(attrLoc,0);
 
-    //vertices, pos, vel and mass to the shader
     glBindVertexArray(vao);
 
     //pos vel in
-    {glBindBuffer(GL_ARRAY_BUFFER,vbo);
-        glVertexAttribPointer(vPosLoc,4,GL_FLOAT,GL_FALSE,sizeof(Feed),
-                              (const void*)0);
-        glVertexAttribPointer(vVelLoc,3,GL_FLOAT,GL_FALSE,sizeof(Feed),
-                              (const void*)(sizeof(glm::vec4)));
-    }
-    glBindVertexArray(0);
-return;
-    {
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_BUFFER,tbo);
-        glBindBuffer(GL_TEXTURE_BUFFER, tbb);
-        glBufferData(GL_TEXTURE_BUFFER,sz*sizeof(glm::vec4),NULL,GL_STREAM_DRAW);
-        glm::vec4 * buffer = (glm::vec4*)glMapBuffer(GL_TEXTURE_BUFFER,GL_WRITE_ONLY);
-        for(size_t i=0;i<sz;i++){
-            Body &b = d->bodies[i];
-            *(buffer+i) = glm::vec4(b.pos.x,b.pos.y,b.pos.z,b.mass);
-        }
-        glUnmapBuffer(GL_TEXTURE_BUFFER);
-        glTexBuffer(GL_TEXTURE_BUFFER,GL_RGBA32F,tbb);
-    }
+    glBindBuffer(GL_ARRAY_BUFFER,vbo);
+    glVertexAttribPointer(vPosLoc,4,GL_FLOAT,GL_FALSE,sizeof(Feed),
+                          (const void*)0);
+    glVertexAttribPointer(vVelLoc,3,GL_FLOAT,GL_FALSE,sizeof(Feed),
+                          (const void*)(sizeof(glm::vec4)));
+
+
+    //pos and mass sampler, attractors
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_BUFFER,tbo);
+    glBindBuffer(GL_TEXTURE_BUFFER, tbb);
+    glTexBuffer(GL_TEXTURE_BUFFER,GL_RGBA32F,tbb);
 
     //feedback, new pos and vels out
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
     glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
-    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER,
-                 sz*(sizeof(glm::vec4)+sizeof(glm::vec3)),
-                 NULL,GL_DYNAMIC_COPY);
     glTransformFeedbackBufferBase(xfo,0,xfb);
 
-    //draw, capture new pos,vel,mass
-    glBeginTransformFeedback(GL_POINTS);
-    glDrawArrays(GL_POINTS, 0 ,sz);
-    glEndTransformFeedback();
-
-    //update new pos and vels and mass from shader
-    glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
-    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
-    struct FeedOut {
-        glm::vec4 pos;
-        glm::vec3 vel;
-    } * feedout = (FeedOut*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_READ_ONLY);
-
-    for(size_t i=0;i<sz;i++){
-        d->bodies[i].pos = feedout[i].pos;
-        d->bodies[i].vel = feedout[i].vel;
-        //std::cout << std::scientific << d->bodies[i].pos;
-    }
-    //std::cout << std::endl;
-    glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
-
-    //clean up
-//    glBindBuffer(GL_ARRAY_BUFFER,0);
-//    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
-//    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,0);
-//    glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,0);
-//    glBindBuffer(GL_TEXTURE_BUFFER,0);
-//    glBindTexture(GL_TEXTURE_BUFFER,0);
     glBindVertexArray(0);
-    //glUseProgram(0);
-    //exit(1);
+    glUseProgram(0);
 }
 
 void init(UserData *d, GLuint cnt)
@@ -488,8 +436,8 @@ void init(UserData *d, GLuint cnt)
     //ranfom initial bodies
     d->bodies.resize(cnt);
     for(GLuint i=0;i<cnt;i++){
-        Body &b = d->bodies[i];
-        b.mass = (float(rand())/float(RAND_MAX))*100.0f;
+        Feed &b = d->bodies[i];
+        float mass = (float(rand())/float(RAND_MAX))*1000.0f;
         b.vel = glm::vec3(0,0,0);
         float pa = (float)rand();
         float pb = (float)rand();
@@ -497,7 +445,8 @@ void init(UserData *d, GLuint cnt)
         b.pos = glm::vec4(pr*std::cos(pb)*std::cos(pa),
                           pr*std::sin(pb),
                           pr*std::cos(pb)*std::sin(pa),
-                          1.0f);
+                          mass);
+        //if(i==0) {b.pos = glm::vec4(0,0,0,10000);}
         //if(i==0) b.pos = glm::vec4(-1,0,0,1);
         //else if(i==1) b.pos = glm::vec4(1,0,0,1);
         //else if(i==2) b.pos = glm::vec4(0,1,1,1);
@@ -536,7 +485,6 @@ void drawBodies(UserData *d, double dt)
     GLuint vbo = d->vbo[VBO_BODY];
     GLuint xfo = d->xfo[XFO_BODY];
     GLuint xfb = d->xfb[XFB_BODY];
-    GLuint tbo = d->tbo[TBO_ATTR];
     GLuint tbb = d->tbb[TBB_ATTR];
     GLuint sz = d->bodies.size();
 
@@ -548,7 +496,6 @@ void drawBodies(UserData *d, double dt)
     GLint cntLoc = glGetUniformLocation(prg,"cnt");
     GLint vPosLoc = glGetAttribLocation(prg,"vPos");
     GLint vVelLoc = glGetAttribLocation(prg,"vVel");
-    GLint attrLoc = glGetUniformLocation(prg,"attr");
 
     //uniform mvp and dt
     glm::mat4 mvp = d->proj * d->view * d->model;
@@ -558,46 +505,29 @@ void drawBodies(UserData *d, double dt)
 
     //vertices, pos, vel and mass to the shader
     glBindVertexArray(vao);
+    glEnableVertexAttribArray(vPosLoc);
+    glEnableVertexAttribArray(vVelLoc);
 
     //pos vel in
-    {glBindBuffer(GL_ARRAY_BUFFER,vbo);
-        glBufferData(GL_ARRAY_BUFFER,
-                     sz*(sizeof(glm::vec4)+sizeof(glm::vec3)),
-                     NULL,GL_STREAM_DRAW);
-        struct FeedIn {
-            glm::vec4 pos;
-            glm::vec3 vel;
-        } * buffer =  (FeedIn*)glMapBuffer(GL_ARRAY_BUFFER,GL_WRITE_ONLY);
-        for(size_t i=0;i<sz;i++){
-            buffer[i].vel = d->bodies[i].vel;
-            buffer[i].pos = d->bodies[i].pos;
-        }
-        glUnmapBuffer(GL_ARRAY_BUFFER);
-        glEnableVertexAttribArray(vPosLoc);
-        glEnableVertexAttribArray(vVelLoc);
-    }
+    glBindBuffer(GL_ARRAY_BUFFER,vbo);
+    glBufferData(GL_ARRAY_BUFFER,sz*sizeof(Feed),NULL,GL_STREAM_DRAW);
+    Feed * feedin =  (Feed*)glMapBuffer(GL_ARRAY_BUFFER,GL_WRITE_ONLY);
+    memcpy(feedin,d->bodies.data(),sz*sizeof(Feed));
+    glUnmapBuffer(GL_ARRAY_BUFFER);
 
-    {
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_BUFFER,tbo);
-        glBindBuffer(GL_TEXTURE_BUFFER, tbb);
-        glBufferData(GL_TEXTURE_BUFFER,sz*sizeof(glm::vec4),NULL,GL_STREAM_DRAW);
-        glm::vec4 * buffer = (glm::vec4*)glMapBuffer(GL_TEXTURE_BUFFER,GL_WRITE_ONLY);
-        for(size_t i=0;i<sz;i++){
-            Body &b = d->bodies[i];
-            *(buffer+i) = glm::vec4(b.pos.x,b.pos.y,b.pos.z,b.mass);
-        }
-        glUnmapBuffer(GL_TEXTURE_BUFFER);
-        glTexBuffer(GL_TEXTURE_BUFFER,GL_RGBA32F,tbb);
+    glBindBuffer(GL_TEXTURE_BUFFER, tbb);
+    glBufferData(GL_TEXTURE_BUFFER,sz*sizeof(glm::vec4),NULL,GL_STREAM_DRAW);
+    glm::vec4 * attr = (glm::vec4*)glMapBuffer(GL_TEXTURE_BUFFER,GL_WRITE_ONLY);
+    for(size_t i=0;i<sz;i++){
+        Feed &b = d->bodies[i];
+        *(attr+i) = b.pos;//b.pos.w is mass
     }
+    glUnmapBuffer(GL_TEXTURE_BUFFER);
 
     //feedback, new pos and vels out
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
     glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
-    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER,
-                 sz*(sizeof(glm::vec4)+sizeof(glm::vec3)),
-                 NULL,GL_DYNAMIC_COPY);
-    glTransformFeedbackBufferBase(xfo,0,xfb);
+    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER,sz*sizeof(Feed), NULL, GL_DYNAMIC_COPY);
 
     //draw, capture new pos,vel,mass
     glBeginTransformFeedback(GL_POINTS);
@@ -607,32 +537,15 @@ void drawBodies(UserData *d, double dt)
     //update new pos and vels and mass from shader
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
     glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
-    struct FeedOut {
-        glm::vec4 pos;
-        glm::vec3 vel;
-    } * feedout = (FeedOut*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_READ_ONLY);
-
-    for(size_t i=0;i<sz;i++){
-        d->bodies[i].pos = feedout[i].pos;
-        d->bodies[i].vel = feedout[i].vel;
-        //std::cout << std::scientific << d->bodies[i].pos;
-    }
-    //std::cout << std::endl;
+    Feed * feedout = (Feed*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_READ_ONLY);
+    memcpy(d->bodies.data(),feedout,sz*sizeof(Feed));
     glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
 
     glDisableVertexAttribArray(vPosLoc);
     glDisableVertexAttribArray(vVelLoc);
 
-    //clean up
-    glBindBuffer(GL_ARRAY_BUFFER,0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
-    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,0);
-    glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,0);
-    glBindBuffer(GL_TEXTURE_BUFFER,0);
-    glBindTexture(GL_TEXTURE_BUFFER,0);
     glBindVertexArray(0);
     glUseProgram(0);
-    //exit(1);
 }
 
 void display(UserData *d)
