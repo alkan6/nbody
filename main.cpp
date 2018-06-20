@@ -61,11 +61,6 @@ static const GLchar * cubeFShader =
 
 static const GLchar * bodyVShader =
         "#version 420 core\n"
-        "struct Body {"
-        "  vec4 pos;"
-        "  vec3 vel;"
-        "  float mass;"
-        "};"
         ""
         "layout (location=0) in vec4 vPos;"
         "layout (location=1) in vec3 vVel;"
@@ -79,7 +74,6 @@ static const GLchar * bodyVShader =
         ""
         "out vec4 nPos;"
         "out vec3 nVel;"
-        "out float nMass;"
         ""
         "void main(){"
         "  const float G = 6.674e-11;"
@@ -87,14 +81,13 @@ static const GLchar * bodyVShader =
         "  for(int i=0;i<cnt;i++){"
         "    vec4 pos = texelFetch(posBuffer,i);"
         "    float mass = texelFetch(massBuffer,i).r;"
-        "    float d = distance(pos, vPos);"
-        "    if(d<0.000001f) continue;"
-        "    f += G * vMass * mass * (pos.xyz - vPos.xyz)/d/d/d;"
+        "    float d = distance(pos,vPos);"
+        "    if(d < 1e-11) continue;"
+        "    f += (G * vMass * mass * (pos - vPos).xyz/d/d/d);"
         "  }"
         "  vec3 accel = f/vMass;"
         "  nVel = vVel + accel * dt;"
         "  nPos = vPos + vec4(vVel * dt, 0.0f);"
-        "  nMass = vMass;"
         "  gl_Position = mvp * nPos;"
         "}";
 
@@ -276,9 +269,9 @@ void onScroll(GLFWwindow *wnd, double, double dy)
 void init(UserData *d, GLuint cnt)
 {
     //USer Data
-    d->autoRot = GLFW_TRUE;
+    d->autoRot = GLFW_FALSE;
     d->fov = 60.0f;
-    d->eye = glm::vec4(0.1f, 0.1f, 3.2f, 1.0f);
+    d->eye = glm::vec4(0.0f, 0.0f, 3.2f, 1.0f);
     d->proj = glm::mat4(1.0f);
     d->model = glm::mat4(1.0f);
     d->view = glm::lookAt(glm::vec3(d->eye),
@@ -345,7 +338,7 @@ void init(UserData *d, GLuint cnt)
 
     prg = loadShaders(
     {GL_VERTEX_SHADER,GL_FRAGMENT_SHADER},
-    {bodyVShader, bodyFShader}, {"nPos", "nVel", "nMass"});
+    {bodyVShader, bodyFShader}, {"nPos", "nVel"});
     if(!prg) exit(-1);
     d->prg[PRG_BODY] = prg;
 
@@ -371,6 +364,8 @@ void init(UserData *d, GLuint cnt)
                           pr*std::sin(pb),
                           pr*std::cos(pb)*std::sin(pa),
                           1.0f);
+        if(i==0) b.pos = glm::vec4(1,0,0,1);
+        else if(i==1) b.pos = glm::vec4(-1,0,0,1);
     }
 }
 
@@ -448,9 +443,13 @@ void drawBodies(UserData *d, double dt)
 
     //pso vel mass in
     {glBindBuffer(GL_ARRAY_BUFFER,vbo);
-        glBufferData(GL_ARRAY_BUFFER,sz*sizeof(Body),NULL,GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER,sz*sizeof(Body),NULL,GL_DYNAMIC_COPY);
         Body * buffer =  (Body*)glMapBuffer(GL_ARRAY_BUFFER,GL_WRITE_ONLY);
-        memcpy(buffer,d->bodies.data(),sz*sizeof(Body));
+        for(size_t i=0;i<sz;i++){
+            buffer[i].vel = d->bodies[i].vel;
+            buffer[i].pos = d->bodies[i].pos;
+            buffer[i].mass = d->bodies[i].mass;
+        }
         glUnmapBuffer(GL_ARRAY_BUFFER);
     }
 
@@ -474,8 +473,8 @@ void drawBodies(UserData *d, double dt)
         glUnmapBuffer(GL_TEXTURE_BUFFER);
     }
     glBindTexture(GL_TEXTURE_BUFFER,tboPos);
-    glTextureBuffer(tboPos,GL_RGBA32F, tbbPos);
     glBindBuffer(GL_ARRAY_BUFFER,tbbPos);
+    glTextureBuffer(tboPos,GL_RGBA32F, tbbPos);
     glVertexAttribPointer(posLoc, 4, GL_FLOAT,GL_FALSE, 0, (const void*)0);
     glEnableVertexAttribArray(posLoc);
 
@@ -489,15 +488,17 @@ void drawBodies(UserData *d, double dt)
         glUnmapBuffer(GL_TEXTURE_BUFFER);
     }
     glBindTexture(GL_TEXTURE_BUFFER,tboMass);
-    glTextureBuffer(tboMass,GL_R32F, tbbMass);
     glBindBuffer(GL_ARRAY_BUFFER,tbbMass);
+    glTextureBuffer(tboMass,GL_R32F, tbbMass);
     glVertexAttribPointer(massLoc, 1, GL_FLOAT,GL_FALSE, 0, (const void*)0);
     glEnableVertexAttribArray(massLoc);
 
     //feedback, new pos and vels and mass out
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
     glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
-    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER,sz*sizeof(Body),NULL,GL_DYNAMIC_COPY);
+    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER,
+                 sz*(sizeof(glm::vec4)+sizeof(glm::vec3)),
+                 NULL,GL_DYNAMIC_COPY);
     glTransformFeedbackBufferBase(xfo,0,xfb);
 
     //draw, capture new pos,vel,mass
@@ -505,13 +506,29 @@ void drawBodies(UserData *d, double dt)
     glDrawArrays(GL_POINTS, 0 ,sz);
     glEndTransformFeedback();
 
+    GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
+    glClientWaitSync(sync,GL_SYNC_FLUSH_COMMANDS_BIT,1000000);
+
+    std::cout << std::scientific
+              << d->bodies[0].pos
+              << " "
+              << d->bodies[1].pos << std::endl;
     //update new pos and vels and mass from shader
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
     glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
-    Body * feedback = (Body*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_READ_ONLY);
-    memcpy(d->bodies.data(),feedback,sz*sizeof(Body));
+    struct FeedBack {
+        glm::vec4 pos;
+        glm::vec3 vel;
+    } * feedback = (FeedBack*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_READ_ONLY);
+    for(size_t i=0;i<sz;i++){
+        d->bodies[i].pos = feedback[i].pos;
+        d->bodies[i].vel = feedback[i].vel;
+    }
     glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
-    std::cout << std::scientific << glm::distance(d->bodies[0].pos,d->bodies[1].pos) << std::endl;
+    std::cout << std::scientific
+              << d->bodies[0].pos
+              << " "
+              << d->bodies[1].pos << std::endl << std::endl;
 
     glDisableVertexAttribArray(vPosLoc);
     glDisableVertexAttribArray(vVelLoc);
