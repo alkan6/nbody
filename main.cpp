@@ -281,6 +281,33 @@ void onScroll(GLFWwindow *wnd, double, double dy)
                           glm::vec3(0.0f,1.0f,0.0f));
 }
 
+void initCube(UserData *d)
+{
+    GLuint prg = d->prg[PRG_CUBE];
+    GLuint vao = d->vao[VAO_CUBE];
+    GLuint vbo = d->vbo[VBO_CUBE];
+    GLuint ebo = d->ebo[EBO_CUBE];
+
+    GLint mvpLoc = glGetUniformLocation(prg,"mvp");
+    GLint vPosLoc = glGetAttribLocation(prg,"vPos");
+
+    glBindVertexArray(vao);
+
+    glBindBuffer(GL_ARRAY_BUFFER,vbo);
+    glBufferData(GL_ARRAY_BUFFER,8*sizeof(glm::vec4),cube,GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,24*sizeof(GLushort),cubei,GL_STATIC_DRAW);
+
+    glVertexAttribPointer(vPosLoc,4,GL_FLOAT,GL_FALSE,0,(const void*)0);
+    glBindVertexArray(0);
+}
+
+void initBodies(UserData *d)
+{
+
+}
+
 void init(UserData *d, GLuint cnt)
 {
     //USer Data
@@ -386,6 +413,8 @@ void init(UserData *d, GLuint cnt)
         //else if(i==2) b.pos = glm::vec4(0,1,1,1);
         //else if(i==3) {b.pos = glm::vec4(0,0,0,1);b.mass *= 3.0f;}
     }
+    initCube(d);
+    initBodies(d);
 }
 
 
@@ -394,8 +423,6 @@ void drawCube(UserData *d)
 {
     GLuint prg = d->prg[PRG_CUBE];
     GLuint vao = d->vao[VAO_CUBE];
-    GLuint vbo = d->vbo[VBO_CUBE];
-    GLuint ebo = d->ebo[EBO_CUBE];
 
     glUseProgram(prg);
 
@@ -406,22 +433,12 @@ void drawCube(UserData *d)
     glUniformMatrix4fv(mvpLoc,1,GL_FALSE,glm::value_ptr(mvp));
 
     glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER,vbo);
-    glBufferData(GL_ARRAY_BUFFER,8*sizeof(glm::vec4),cube,GL_STATIC_DRAW);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER,24*sizeof(GLushort),cubei,GL_STATIC_DRAW);
-
-    glVertexAttribPointer(vPosLoc,4,GL_FLOAT,GL_FALSE,0,(const void*)0);
     glEnableVertexAttribArray(vPosLoc);
 
     glDrawElements(GL_LINES,24,GL_UNSIGNED_SHORT,NULL);
 
     glDisableVertexAttribArray(vPosLoc);
-
-    glBindBuffer(GL_ARRAY_BUFFER,0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
     glBindVertexArray(0);
-    glUseProgram(0);
 }
 
 void drawBodies(UserData *d, double dt)
