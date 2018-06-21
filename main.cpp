@@ -14,7 +14,7 @@ enum {VAO_CUBE,VAO_BODY,VAO_CNT};
 enum {VBO_CUBE,VBO_BODY,VBO_CNT};
 enum {EBO_CUBE,EBO_CNT};
 enum {XFO_BODY,XFO_CNT};
-enum {XFB_BODY,XFB_CNT};
+enum {XFB_BODY,XFB_JOIN,XFB_CNT};
 enum {TBO_ATTR,TBO_CNT};
 enum {TBB_ATTR,TBB_CNT};
 
@@ -71,9 +71,11 @@ static const GLchar * bodyVShader =
         ""
         "out vec4 nPos;"
         "out vec3 nVel;"
-         ""
+        "out int join;"
+        ""
         "void main(){"
-        "  const float G = 6.674e-11;"
+        "  const float G = 6.674e-11; /* N(m/kg)2 */"
+        "  join = -1;"
         "  nVel = vVel;"
         "  for(int i=0;i<cnt;++i){"
         "    if(i == gl_VertexID) continue;"
@@ -82,9 +84,11 @@ static const GLchar * bodyVShader =
         "    vec3 aPos = a.xyz; "
         "    float aMass = a.w;"
         "    vec3 d = aPos - vPos.xyz;"
-        "    d = normalize(d)/dot(d,d);"
-        "    if(abs(length(d))>=1.0f) continue;"
-        "    nVel += dt * G * aMass * d;"
+        "    float dd = dot(d,d);"
+        "    if(dd<=1.0f) join=i;"
+        "    vec3 dVel = dt * G * aMass / dd * normalize(d);"
+        "    if(length(dVel)>1.0e-5) continue;"
+        "    nVel += dVel;"
         "  }"
         "  nPos = vPos + vec4(dt * vVel, 0.0f);"
         "  gl_Position = mvp * vec4(vPos.xyz,1.0f);"
@@ -100,6 +104,26 @@ static const GLchar * bodyFShader =
         "}";
 
 
+static const GLchar * bodyGShader =
+        "#version 420 core\n"
+        "layout(points) in;"
+        "layout(points, max_vertices=1) out;"
+        "in vec4 nPos[];"
+        "in vec3 nVel[];"
+        "in int join[];"
+        "out vec4 pos;"
+        "out vec3 vel;"
+        "out int merge;"
+        "void main(){"
+        "  for(int i=0;i<gl_in.length();i++){"
+        "    pos = nPos[i];"
+        "    vel = nVel[i];"
+        "    merge = join[i];"
+        "    gl_Position = gl_in[i].gl_Position;"
+        "    EmitVertex();"
+        "    EndPrimitive();"
+        "  }"
+        "}";
 
 static const GLfloat cube[][4] = {
     {-1.0f,-1.0f,-1.0f, 1.0f},
@@ -309,7 +333,8 @@ void initBodies(UserData *d)
     GLuint vao = d->vao[VAO_BODY];
     GLuint vbo = d->vbo[VBO_BODY];
     GLuint xfo = d->xfo[XFO_BODY];
-    GLuint xfb = d->xfb[XFB_BODY];
+    GLuint xfb_body = d->xfb[XFB_BODY];
+    GLuint xfb_join = d->xfb[XFB_JOIN];
     GLuint tbo = d->tbo[TBO_ATTR];
     GLuint tbb = d->tbb[TBB_ATTR];
 
@@ -319,7 +344,7 @@ void initBodies(UserData *d)
     GLint vPosLoc = glGetAttribLocation(prg,"vPos");
     GLint vVelLoc = glGetAttribLocation(prg,"vVel");
     GLint attrLoc = glGetUniformLocation(prg,"attr");
-    glUniform1i(attrLoc,0);
+    glUniform1i(attrLoc,0);//binding
 
     glBindVertexArray(vao);
 
@@ -339,8 +364,10 @@ void initBodies(UserData *d)
 
     //feedback, new pos and vels out
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
-    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
-    glTransformFeedbackBufferBase(xfo,0,xfb);
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb_body);
+    glTransformFeedbackBufferBase(xfo,0,xfb_body);
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb_join);
+    glTransformFeedbackBufferBase(xfo,1,xfb_join);
 
     glBindVertexArray(0);
     glUseProgram(0);
@@ -419,8 +446,9 @@ void init(UserData *d, GLuint cnt)
     d->prg[PRG_CUBE] = prg;
 
     prg = loadShaders(
-    {GL_VERTEX_SHADER,GL_FRAGMENT_SHADER},
-    {bodyVShader, bodyFShader}, {"nPos", "nVel"});
+    {GL_VERTEX_SHADER,GL_FRAGMENT_SHADER, GL_GEOMETRY_SHADER},
+    {bodyVShader, bodyFShader, bodyGShader},
+    {"pos", "vel", "gl_NextBuffer", "merge"});
     if(!prg) exit(-1);
     d->prg[PRG_BODY] = prg;
 
@@ -484,7 +512,8 @@ void drawBodies(UserData *d, double dt)
     GLuint vao = d->vao[VAO_BODY];
     GLuint vbo = d->vbo[VBO_BODY];
     GLuint xfo = d->xfo[XFO_BODY];
-    GLuint xfb = d->xfb[XFB_BODY];
+    GLuint xfb_body = d->xfb[XFB_BODY];
+    GLuint xfb_join = d->xfb[XFB_JOIN];
     GLuint tbb = d->tbb[TBB_ATTR];
     GLuint sz = d->bodies.size();
 
@@ -526,8 +555,15 @@ void drawBodies(UserData *d, double dt)
 
     //feedback, new pos and vels out
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
-    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb_body);
     glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER,sz*sizeof(Feed), NULL, GL_DYNAMIC_COPY);
+
+    Feed * feedin2 =  (Feed*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_WRITE_ONLY);
+    memcpy(feedin2,d->bodies.data(),sz*sizeof(Feed));
+     glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
+
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb_join);
+    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER,sz*sizeof(GLint), NULL, GL_DYNAMIC_COPY);
 
     //draw, capture new pos,vel,mass
     glBeginTransformFeedback(GL_POINTS);
@@ -536,9 +572,21 @@ void drawBodies(UserData *d, double dt)
 
     //update new pos and vels and mass from shader
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK,xfo);
-    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb);
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb_body);
     Feed * feedout = (Feed*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_READ_ONLY);
     memcpy(d->bodies.data(),feedout,sz*sizeof(Feed));
+//    for(size_t i=0;i<sz;i++){
+//        std::cout << " " << glm::length(d->bodies[i].vel);
+//    }
+//    std::cout << std::endl;
+    glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
+
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,xfb_join);
+    GLint * join = (GLint*)glMapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER,GL_READ_ONLY);
+//    for(size_t i=0;i<sz;i++){
+//        std::cout << *(join+i);
+//    }
+//    std::cout << std::endl;
     glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
 
     glDisableVertexAttribArray(vPosLoc);
@@ -591,7 +639,7 @@ void finalize(UserData *d)
 int main(int , char **)
 {
     UserData d;
-    init(&d, 100);
+    init(&d, 10);
     do{
         display(&d);
         glfwSwapBuffers(d.wnd);
