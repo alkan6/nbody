@@ -71,7 +71,7 @@ static const GLchar * bodyVShader =
         ""
         "out vec4 nPos;"
         "out vec3 nVel;"
-        ""
+         ""
         "void main(){"
         "  const float G = 6.674e-11;"
         "  nVel = vVel;"
@@ -83,7 +83,7 @@ static const GLchar * bodyVShader =
         "    float aMass = a.w;"
         "    vec3 d = aPos - vPos.xyz;"
         "    d = normalize(d)/dot(d,d);"
-        "    if(abs(length(d))>=1.0f) d = normalize(d);"
+        "    if(abs(length(d))>=1.0f) continue;"
         "    nVel += dt * G * aMass * d;"
         "  }"
         "  nPos = vPos + vec4(dt * vVel, 0.0f);"
@@ -591,7 +591,7 @@ void finalize(UserData *d)
 int main(int , char **)
 {
     UserData d;
-    init(&d, 1000);
+    init(&d, 100);
     do{
         display(&d);
         glfwSwapBuffers(d.wnd);
